@@ -3,15 +3,14 @@ package redact
 import "testing"
 
 func assertRedaction(t *testing.T, redaction *Redactor, input, expected string) {
-	inputByte := []byte(input)
-	actual := redaction.All(inputByte)
-	if string(actual) == expected {
+	actual := string(redaction.All([]byte(input)))
+	if actual == expected {
 		return
 	}
 	t.Helper()
 	t.Errorf("\n"+
-		"Expected: %s\n"+
-		"Actual:   %s",
+		"Expected: [%s]\n"+
+		"Actual:   [%s]",
 		expected,
 		actual,
 	)
@@ -19,23 +18,99 @@ func assertRedaction(t *testing.T, redaction *Redactor, input, expected string) 
 func TestRedactCreditCard(t *testing.T) {
 	t.Parallel()
 	redaction := New()
+
 	assertRedaction(t, redaction,
 		"",
 		"",
 	)
-	assertRedaction(t, redaction,
+	assertRedaction(t, redaction, // enough digits (and would pass luhn), but not separated from junk
 		"52353330555760656D3FC1D315E80069",
 		"52353330555760656D3FC1D315E80069",
 	)
-	assertRedaction(t, redaction,
-		"4111 1111 1111 1101 111 4556-7375-8689-9855. taco ",
-		"*********************** *******************. taco ",
+	assertRedaction(t, redaction, // 16-digits, but no breaks
+		"4111111111111111",
+		"4111111111111111",
 	)
-	assertRedaction(t, redaction,
+	assertRedaction(t, redaction, // 16-digits, but too many breaks
+		"4-1-1-1-1-1-1-1-1-1-1-1-1-1-1-1",
+		"4-1-1-1-1-1-1-1-1-1-1-1-1-1-1-1",
+	)
+	assertRedaction(t, redaction, // 16-digits, but too short
+		"4111-1111-1117",
+		"4111-1111-1117",
+	)
+	assertRedaction(t, redaction, // 16-digit card, full input
+		"4111 1111 1111 1111",
+		"*******************",
+	)
+	assertRedaction(t, redaction, // 16-digit card, but mixed separators
+		"4111 1111-1111 1111",
+		"4111 1111-1111 1111",
+	)
+	assertRedaction(t, redaction, // 16-digit card, trailing content
+		"4111 1111 1111 1111 ",
+		"******************* ",
+	)
+	assertRedaction(t, redaction, // 16-digit card, leading content
+		" 4111 1111 1111 1111",
+		" *******************",
+	)
+	assertRedaction(t, redaction, // 16-digit card, leading and trailing content
+		" 4111 1111 1111 1111 ",
+		" ******************* ",
+	)
+	assertRedaction(t, redaction, // 16-digit card, grouped w/ dashes, full input
+		"4556-7375-8689-9855",
+		"*******************",
+	)
+	assertRedaction(t, redaction, // 16-digit card, grouped w/ dashes, leading content
+		" 4556-7375-8689-9855",
+		" *******************",
+	)
+	assertRedaction(t, redaction, // 16-digit card, grouped w/ dashes, trailing content
 		"4556-7375-8689-9855 ",
 		"******************* ",
 	)
-
+	assertRedaction(t, redaction, // 16-digit card, grouped w/ dashes, leading and trailing content
+		" 4556-7375-8689-9855 ",
+		" ******************* ",
+	)
+	assertRedaction(t, redaction, // 19-digit card (max length), grouped w/ spaces
+		"4111 1111 1111 1101 111",
+		"***********************",
+	)
+	assertRedaction(t, redaction, // 20-digit card, too long.
+		"4111 1111 1111 1101 1117",
+		"4111 1111 1111 1101 1117",
+	)
+	assertRedaction(t, redaction, // multiple cards, separated by stuff
+		"4111 1111 1111 1111 stuff 4111 1111 1111 1111",
+		"******************* stuff *******************",
+	)
+	assertRedaction(t, redaction, // 16-digit card, mixed separators
+		" 4111 1111 1111-1111",
+		" 4111 1111 1111-1111",
+	)
+	assertRedaction(t, redaction, // ends in letter, redacting would be aggressive
+		"4556-7375-8689-9855a taco ",
+		"4556-7375-8689-9855a taco ",
+	)
+	assertRedaction(t, redaction, // ends in period (not a valid separator, but not a number or letter either)
+		"4556-7375-8689-9855. taco ",
+		"*******************. taco ",
+	)
+	assertRedaction(t, redaction, // starts w/ colon (not a valid separator, but not a number or letter either)
+		"cc:4556-7375-8689-9855 ",
+		"cc:******************* ",
+	)
+	assertRedaction(t, redaction, // multiple redactions, each w/ different separator and junk
+		"4111 1111 1111 1101 111 4556-7375-8689-9855. taco ",
+		"*********************** *******************. taco ",
+	)
+	assertRedaction(t, redaction, // fails luhn algorithm
+		"1234 1234 1234 1234",
+		"1234 1234 1234 1234",
+	)
 }
 func TestRedactEmail(t *testing.T) {
 	t.Parallel()
@@ -50,6 +125,7 @@ func TestRedactEmail(t *testing.T) {
 func TestRedactPhone(t *testing.T) {
 	t.Parallel()
 	redaction := New()
+
 	assertRedaction(t, redaction,
 		"801-111-1111 and (801) 111-1111 +1(801)111-1111 taco",
 		"************ and (801) 111-1111 +1************* taco",
@@ -101,6 +177,7 @@ func TestRedactDOB(t *testing.T) {
 	t.Parallel()
 
 	redaction := New()
+
 	assertRedaction(t, redaction,
 		" Apr 39 ",
 		" Apr 39 ",
